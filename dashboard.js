@@ -164,3 +164,176 @@ cin.addEventListener('keydown', e => { const it = cl.querySelectorAll('.cmd'); i
 document.addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); cin.focus(); } });
 
 counts(); refresh().catch(() => {}); setInterval(() => refresh().catch(() => {}), 1000);
+
+
+/* ---------- face-api.js browser prototype ---------- */
+const FACE_MODELS = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
+const FACE_DB_KEY = 'sdpc.faceDescriptors.v1';
+let faceReady = false, faceRunning = false, faceBusy = false, faceTimer = null;
+let currentFaceDescriptor = null, lastFaceEvent = '', lastFaceEventAt = 0, faceUsers = [];
+function faceStatus(text) { $('faceStatus').textContent = text; }
+function loadFaceUsers() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(FACE_DB_KEY) || '[]');
+    faceUsers = Array.isArray(raw) ? raw.filter(x => x && typeof x.name === 'string' && Array.isArray(x.descriptor) && x.descriptor.length === 128) : [];
+  } catch (e) { faceUsers = []; }
+  renderFaceUsers();
+}
+function saveFaceUsers() {
+  try { localStorage.setItem(FACE_DB_KEY, JSON.stringify(faceUsers)); }
+  catch (e) { toast('Could not save registrations in this browser'); }
+  renderFaceUsers();
+}
+function renderFaceUsers() {
+  const box = $('faceUsers');
+  if (!faceUsers.length) {
+    box.replaceChildren(Object.assign(document.createElement('div'), { className: 'emptyrow', textContent: 'No registered users.' }));
+    return;
+  }
+  box.replaceChildren(...faceUsers.map((u, i) => {
+    const row = document.createElement('div'); row.className = 'ev';
+    const name = document.createElement('span'); name.textContent = u.name;
+    const remove = document.createElement('button'); remove.className = 'btn ghost sm'; remove.textContent = 'Remove';
+    remove.onclick = () => { faceUsers.splice(i, 1); saveFaceUsers(); toast('Registration removed'); };
+    row.append(name, remove); return row;
+  }));
+}
+async function faceEvent(message) {
+  const now = Date.now();
+  if (message === lastFaceEvent && now - lastFaceEventAt < 15000) return;
+  lastFaceEvent = message; lastFaceEventAt = now;
+  try { await post('/api/face-event', { message }); } catch (e) { /* recognition remains usable if logging fails */ }
+}
+function selectedCameraUrl() {
+  const n = Number($('faceCamera').value);
+  const direct = cam(n).url.value.trim();
+  if (!/^http:\/\//i.test(direct)) throw Error('Enter a valid ESP32-CAM http:// URL first.');
+  return '/api/camera-stream?url=' + encodeURIComponent(direct);
+}
+async function startFaceAnalysis() {
+  if (faceRunning) return;
+  if (!faceReady) return toast('Face models are still loading');
+  let streamUrl;
+  try { streamUrl = selectedCameraUrl(); } catch (e) { return toast(e.message); }
+  const img = $('faceStream');
+  $('faceStart').disabled = true;
+  faceStatus('Connecting to camera stream…');
+  $('facePlaceholder').hidden = true;
+  img.hidden = false;
+  img.onerror = () => {
+    if (!faceRunning) {
+      $('facePlaceholder').hidden = false; img.hidden = true;
+      $('faceStart').disabled = false;
+      faceStatus('Camera stream failed. Check the URL and network.');
+    }
+  };
+  img.src = streamUrl;
+  try {
+    await new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => reject(Error('Camera stream timed out')), 8000);
+      img.onload = () => { clearTimeout(timeout); resolve(); };
+      img.onerror = () => { clearTimeout(timeout); reject(Error('Camera stream failed')); };
+    });
+  } catch (e) {
+    img.removeAttribute('src'); img.hidden = true; $('facePlaceholder').hidden = false;
+    $('faceStart').disabled = false; faceStatus(e.message + '. Confirm the camera URL and close other stream viewers if needed.');
+    return;
+  }
+  faceRunning = true;
+  $('faceStart').disabled = true; $('faceStop').disabled = false; $('faceEnroll').disabled = false;
+  faceStatus('Camera connected. Looking for a face…');
+  faceLoop();
+  faceTimer = setInterval(faceLoop, 450);
+}
+async function faceLoop() {
+  if (!faceRunning || faceBusy || !faceReady) return;
+  const img = $('faceStream');
+  if (!img.naturalWidth || !img.naturalHeight) return;
+  faceBusy = true;
+  try {
+    const result = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
+      .withFaceLandmarks().withFaceDescriptor();
+    const canvas = $('faceOverlay'), rect = img.getBoundingClientRect();
+    const w = img.naturalWidth, h = img.naturalHeight;
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    if (!result) {
+      currentFaceDescriptor = null;
+      $('faceResult').textContent = 'No face detected';
+      $('faceDistance').textContent = 'Move into view with good lighting.';
+      faceStatus('Camera live · no face detected');
+      await faceEvent('No face detected');
+      return;
+    }
+    currentFaceDescriptor = Array.from(result.descriptor);
+    const b = result.detection.box;
+    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = Math.max(2, w / 240);
+    ctx.strokeRect(b.x, b.y, b.width, b.height);
+    if (!faceUsers.length) {
+      $('faceResult').textContent = 'Face detected';
+      $('faceDistance').textContent = 'Register a consenting test user to compare.';
+      faceStatus('Face detected · no registrations yet');
+      return;
+    }
+    let best = { name: '', distance: Infinity };
+    for (const user of faceUsers) {
+      const distance = faceapi.euclideanDistance(currentFaceDescriptor, user.descriptor);
+      if (distance < best.distance) best = { name: user.name, distance };
+    }
+    // 0.6 is a conventional face-api.js starting point only; validate on this camera.
+    // This result is display-only and never triggers a servo command.
+    const matched = best.distance < 0.6;
+    $('faceResult').textContent = matched ? 'Possible match: ' + best.name : 'No registered match';
+    $('faceDistance').textContent = 'Descriptor distance: ' + best.distance.toFixed(3) + ' · provisional threshold 0.600';
+    faceStatus(matched ? 'Possible match · testing only' : 'Face detected · no match');
+    await faceEvent(matched ? 'Possible match: ' + best.name + ' (testing only)' : 'No registered face match');
+  } catch (e) {
+    faceStatus('Analysis error: ' + e.message);
+  } finally { faceBusy = false; }
+}
+function stopFaceAnalysis() {
+  faceRunning = false; clearInterval(faceTimer); faceTimer = null;
+  const img = $('faceStream'); img.onerror = null; img.onload = null; img.removeAttribute('src'); img.hidden = true;
+  const canvas = $('faceOverlay'); canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  $('facePlaceholder').hidden = false; $('faceStart').disabled = !faceReady;
+  $('faceStop').disabled = true; $('faceEnroll').disabled = true;
+  currentFaceDescriptor = null; $('faceResult').textContent = 'Testing only'; $('faceDistance').textContent = 'No comparison yet';
+  faceStatus(faceReady ? 'Analysis stopped. The servo is not controlled by face matching.' : 'Face models are not ready.');
+}
+$('faceStart').onclick = startFaceAnalysis;
+$('faceStop').onclick = stopFaceAnalysis;
+$('faceCamera').onchange = () => { if (faceRunning) { stopFaceAnalysis(); startFaceAnalysis(); } };
+$('faceEnroll').onclick = () => {
+  if (!currentFaceDescriptor) return toast('No face descriptor available. Make sure a face is visible first.');
+  const name = $('faceName').value.trim();
+  if (!name) return toast('Enter a name before registering.');
+  const existing = faceUsers.findIndex(u => u.name.toLowerCase() === name.toLowerCase());
+  const item = { name, descriptor: currentFaceDescriptor.slice() };
+  if (existing >= 0) faceUsers[existing] = item; else faceUsers.push(item);
+  saveFaceUsers(); toast('Test registration saved in this browser'); faceStatus('Registered ' + name + ' for testing');
+};
+$('faceClear').onclick = () => {
+  if (!confirm('Clear all face descriptors saved in this browser?')) return;
+  faceUsers = []; saveFaceUsers(); $('faceResult').textContent = 'Testing only'; $('faceDistance').textContent = 'No comparison yet';
+  toast('All face registrations cleared');
+};
+loadFaceUsers();
+(async function initFaceModels() {
+  try {
+    if (!window.faceapi) throw Error('face-api.js library did not load. Check your internet connection.');
+    faceStatus('Loading face detection and recognition models…');
+    $('faceModelStatus').textContent = 'LOADING MODELS';
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODELS),
+      faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODELS),
+      faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODELS)
+    ]);
+    faceReady = true; $('faceModelStatus').textContent = 'MODELS READY';
+    $('faceModelStatus').className = 'state online'; $('faceStart').disabled = false;
+    faceStatus('Models loaded. Start analysis to test the selected camera.');
+  } catch (e) {
+    $('faceModelStatus').textContent = 'MODEL ERROR'; $('faceModelStatus').className = 'state error';
+    faceStatus('Could not load face models: ' + e.message + '. Check internet access and reload the dashboard.');
+  }
+})();
