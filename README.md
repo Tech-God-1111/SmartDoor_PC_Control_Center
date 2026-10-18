@@ -42,3 +42,15 @@ SAFETY / LIMITATIONS
 - If the servo causes resets or USB dropouts, use a suitable regulated 5V servo
   supply and connect its ground to Uno GND. Do not connect external +5V to Uno
   5V while the Uno is USB-powered.
+
+
+FACE-API.JS BROWSER TEST (FEATURE BRANCH)
+1. Start the local app with `py smartdoor_pc.py` and open `http://127.0.0.1:8765/`.
+2. On the Live tab, set Camera #1 to the current ESP32-CAM stream URL (for this setup: `http://192.168.1.44:81/stream`) and connect it.
+3. Open Hardware → Face recognition. Internet access is needed to load the face-api.js library and model weights on first load.
+4. Wait for MODEL READY, choose Entry camera, then Start analysis.
+5. Enter a consenting test user's name and click Register current face while the face is visible.
+6. Test the same user and other consenting test users in varied lighting. Use Clear registrations to remove descriptors stored in this browser.
+7. Recognition results and face events are for evaluation only. Face matching does not send servo commands; the existing servo controls remain manual bench-test controls.
+
+This feature branch adds a local stream relay restricted to private-network ESP32-CAM URLs on port 81 and a browser-side face-api.js test panel. The initial 0.600 descriptor-distance cutoff is only a prototype starting point and must be evaluated on labelled samples; it is not a security guarantee. The prototype does not implement liveness detection and must not be used as the sole security control for a real door.
