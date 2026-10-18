@@ -170,7 +170,7 @@ counts(); refresh().catch(() => {}); setInterval(() => refresh().catch(() => {})
 const FACE_MODELS = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
 const FACE_DB_KEY = 'sdpc.faceDescriptors.v1';
 let faceReady = false, faceRunning = false, faceBusy = false, faceTimer = null;
-let currentFaceDescriptor = null, lastFaceEvent = '', lastFaceEventAt = 0, faceUsers = [];
+let currentFaceDescriptor = null, lastFaceState = '', faceUsers = [], enrollSamples = [], enrollName = '';
 function faceStatus(text) { $('faceStatus').textContent = text; }
 function loadFaceUsers() {
   try {
@@ -180,9 +180,8 @@ function loadFaceUsers() {
   renderFaceUsers();
 }
 function saveFaceUsers() {
-  try { localStorage.setItem(FACE_DB_KEY, JSON.stringify(faceUsers)); }
-  catch (e) { toast('Could not save registrations in this browser'); }
-  renderFaceUsers();
+  try { localStorage.setItem(FACE_DB_KEY, JSON.stringify(faceUsers)); renderFaceUsers(); return true; }
+  catch (e) { toast('Could not save registrations in this browser. Check browser storage settings.'); return false; }
 }
 function renderFaceUsers() {
   const box = $('faceUsers');
@@ -198,11 +197,12 @@ function renderFaceUsers() {
     row.append(name, remove); return row;
   }));
 }
-async function faceEvent(message) {
-  const now = Date.now();
-  if (message === lastFaceEvent && now - lastFaceEventAt < 15000) return;
-  lastFaceEvent = message; lastFaceEventAt = now;
-  try { await post('/api/face-event', { message }); } catch (e) { /* recognition remains usable if logging fails */ }
+async function faceEvent(message, stateKey = message) {
+  // Log state transitions, not every analysis frame.
+  if (stateKey === lastFaceState) return;
+  lastFaceState = stateKey;
+  try { await post('/api/face-event', { message }); }
+  catch (e) { faceStatus('Recognition is running, but event logging failed: ' + e.message); }
 }
 function selectedCameraUrl() {
   const n = Number($('faceCamera').value);
@@ -263,7 +263,7 @@ async function faceLoop() {
       $('faceResult').textContent = 'No face detected';
       $('faceDistance').textContent = 'Move into view with good lighting.';
       faceStatus('Camera live · no face detected');
-      await faceEvent('No face detected');
+      await faceEvent('No face detected', 'no-face');
       return;
     }
     currentFaceDescriptor = Array.from(result.descriptor);
@@ -288,7 +288,7 @@ async function faceLoop() {
     $('faceResult').textContent = matched ? 'Possible match: ' + best.name : 'No registered match';
     $('faceDistance').textContent = 'Descriptor distance: ' + best.distance.toFixed(3) + ' · provisional threshold 0.600';
     faceStatus(matched ? 'Possible match · testing only' : 'Face detected · no match');
-    await faceEvent(matched ? 'Possible match: ' + best.name + ' (testing only)' : 'No registered face match');
+    await faceEvent(matched ? 'Possible match: ' + best.name + ' (testing only)' : 'No registered face match', matched ? 'match:' + best.name : 'no-match');
   } catch (e) {
     faceStatus('Analysis error: ' + e.message);
   } finally { faceBusy = false; }
@@ -306,35 +306,56 @@ $('faceStart').onclick = startFaceAnalysis;
 $('faceStop').onclick = stopFaceAnalysis;
 $('faceCamera').onchange = () => { if (faceRunning) { stopFaceAnalysis(); startFaceAnalysis(); } };
 $('faceEnroll').onclick = () => {
-  if (!currentFaceDescriptor) return toast('No face descriptor available. Make sure a face is visible first.');
+  if (!currentFaceDescriptor) return toast('No face descriptor available. Make sure one face is visible first.');
   const name = $('faceName').value.trim();
   if (!name) return toast('Enter a name before registering.');
+  if (name !== enrollName) { enrollName = name; enrollSamples = []; }
+  enrollSamples.push(currentFaceDescriptor.slice());
+  if (enrollSamples.length < 3) {
+    toast('Sample ' + enrollSamples.length + '/3 saved. Slightly change your head angle, then capture again.');
+    faceStatus('Registering ' + name + ' · sample ' + enrollSamples.length + ' of 3');
+    return;
+  }
+  const mean = Array.from({ length: 128 }, (_, i) => enrollSamples.reduce((sum, sample) => sum + sample[i], 0) / enrollSamples.length);
+  const norm = Math.sqrt(mean.reduce((sum, value) => sum + value * value, 0)) || 1;
+  const descriptor = mean.map(value => value / norm);
+  const previous = faceUsers.slice();
   const existing = faceUsers.findIndex(u => u.name.toLowerCase() === name.toLowerCase());
-  const item = { name, descriptor: currentFaceDescriptor.slice() };
+  const item = { name, descriptor };
   if (existing >= 0) faceUsers[existing] = item; else faceUsers.push(item);
-  saveFaceUsers(); toast('Test registration saved in this browser'); faceStatus('Registered ' + name + ' for testing');
+  enrollSamples = []; enrollName = '';
+  if (saveFaceUsers()) { toast('Three-sample test registration saved'); faceStatus('Registered ' + name + ' for testing'); }
+  else { faceUsers = previous; renderFaceUsers(); }
 };
 $('faceClear').onclick = () => {
   if (!confirm('Clear all face descriptors saved in this browser?')) return;
-  faceUsers = []; saveFaceUsers(); $('faceResult').textContent = 'Testing only'; $('faceDistance').textContent = 'No comparison yet';
+  const previous = faceUsers; faceUsers = [];
+  if (!saveFaceUsers()) { faceUsers = previous; renderFaceUsers(); return; }
+  enrollSamples = []; enrollName = '';
+  $('faceResult').textContent = 'Testing only'; $('faceDistance').textContent = 'No comparison yet';
   toast('All face registrations cleared');
 };
 loadFaceUsers();
 (async function initFaceModels() {
+  $('faceStart').disabled = true; $('faceEnroll').disabled = true;
   try {
-    if (!window.faceapi) throw Error('face-api.js library did not load. Check your internet connection.');
+    if (!window.faceapi) throw Error('face-api.js library did not load from jsDelivr. Check internet or CDN access.');
     faceStatus('Loading face detection and recognition models…');
     $('faceModelStatus').textContent = 'LOADING MODELS';
-    await Promise.all([
+    const loads = Promise.all([
       faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODELS),
       faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODELS),
       faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODELS)
     ]);
+    let timeoutId;
+    try { await Promise.race([loads, new Promise((_, reject) => { timeoutId = setTimeout(() => reject(Error('Model download timed out after 30 seconds')), 30000); })]); }
+    finally { clearTimeout(timeoutId); }
     faceReady = true; $('faceModelStatus').textContent = 'MODELS READY';
     $('faceModelStatus').className = 'state online'; $('faceStart').disabled = false;
     faceStatus('Models loaded. Start analysis to test the selected camera.');
   } catch (e) {
+    faceReady = false; $('faceStart').disabled = true; $('faceEnroll').disabled = true;
     $('faceModelStatus').textContent = 'MODEL ERROR'; $('faceModelStatus').className = 'state error';
-    faceStatus('Could not load face models: ' + e.message + '. Check internet access and reload the dashboard.');
+    faceStatus('Could not load face recognition: ' + e.message + '. Check internet access, then reload the dashboard.');
   }
 })();
