@@ -171,6 +171,9 @@ const FACE_MODELS = 'https://raw.githubusercontent.com/justadudewhohacks/face-ap
 const FACE_DB_KEY = 'sdpc.faceDescriptors.v1';
 let faceReady = false, faceRunning = false, faceBusy = false, faceTimer = null;
 let currentFaceDescriptor = null, lastFaceState = '', faceUsers = [], enrollSamples = [], enrollName = '';
+// Stabilize recognition: collect descriptors for 10s, show one result for 10s, then wait for the face to leave.
+const FACE_CAPTURE_MS = 10000, FACE_RESULT_HOLD_MS = 10000;
+let faceCaptureUntil = 0, faceCooldownUntil = 0, faceWaitForClear = false, faceCaptureSamples = [];
 function faceStatus(text) { $('faceStatus').textContent = text; }
 function loadFaceUsers() {
   try {
@@ -249,20 +252,77 @@ async function startFaceAnalysis() {
   faceLoop();
   faceTimer = setInterval(faceLoop, 450);
 }
+function finishFaceCapture() {
+  faceCaptureUntil = 0;
+  faceCooldownUntil = Date.now() + FACE_RESULT_HOLD_MS;
+  faceWaitForClear = true;
+
+  const samples = faceCaptureSamples;
+  faceCaptureSamples = [];
+  if (samples.length < 3) {
+    $('faceResult').textContent = 'Unable to confirm';
+    $('faceDistance').textContent = `Only ${samples.length} usable sample(s); need at least 3. Try steady lighting and face the camera.`;
+    faceStatus('Analysis complete · insufficient samples · result held for 10s');
+    faceEvent('Face analysis inconclusive: insufficient samples', 'inconclusive');
+    return;
+  }
+  if (!faceUsers.length) {
+    $('faceResult').textContent = 'Face detected';
+    $('faceDistance').textContent = 'No registered users to compare.';
+    faceStatus('Analysis complete · no registrations · result held for 10s');
+    faceEvent('Face detected; no registrations yet', 'face-no-registrations');
+    return;
+  }
+
+  // Average each registered user's distance across the full capture window.
+  let best = { name: '', distance: Infinity };
+  for (const user of faceUsers) {
+    const avg = samples.reduce((sum, descriptor) =>
+      sum + faceapi.euclideanDistance(descriptor, user.descriptor), 0) / samples.length;
+    if (avg < best.distance) best = { name: user.name, distance: avg };
+  }
+  const matched = best.distance < 0.6;
+  $('faceResult').textContent = matched ? 'Possible match: ' + best.name : 'No registered match';
+  $('faceDistance').textContent = `Average distance: ${best.distance.toFixed(3)} across ${samples.length} samples · provisional threshold 0.600`;
+  faceStatus((matched ? 'Possible match · testing only' : 'Face detected · no match') + ' · result held for 10s');
+  faceEvent(matched ? 'Possible match: ' + best.name + ' (testing only)' : 'No registered face match',
+    matched ? 'match:' + best.name : 'no-match');
+}
+
 async function faceLoop() {
   if (!faceRunning || faceBusy || !faceReady) return;
+  const now = Date.now();
+  // Keep the result stable during the hold period.
+  if (now < faceCooldownUntil) return;
+
   const img = $('faceStream');
   if (!img.naturalWidth || !img.naturalHeight) return;
   faceBusy = true;
   try {
     const result = await faceapi.detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 }))
       .withFaceLandmarks().withFaceDescriptor();
-    const canvas = $('faceOverlay'), rect = img.getBoundingClientRect();
-    const w = img.naturalWidth, h = img.naturalHeight;
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, w, h);
+
+    // After showing a result, require the face to leave the frame before another scan.
+    if (faceWaitForClear) {
+      if (!result) {
+        faceWaitForClear = false;
+        currentFaceDescriptor = null;
+        $('faceResult').textContent = 'Ready for next face';
+        $('faceDistance').textContent = 'Move into view to start a new 10-second analysis.';
+        faceStatus('Ready · waiting for a face');
+        await faceEvent('No face detected', 'no-face');
+      }
+      return;
+    }
+
     if (!result) {
+      // If a capture is underway, keep collecting for the full 10 seconds.
+      if (faceCaptureUntil) {
+        const secondsLeft = Math.max(0, Math.ceil((faceCaptureUntil - Date.now()) / 1000));
+        faceStatus('Analyzing face · ' + secondsLeft + 's remaining');
+        if (Date.now() >= faceCaptureUntil) finishFaceCapture();
+        return;
+      }
       currentFaceDescriptor = null;
       $('faceResult').textContent = 'No face detected';
       $('faceDistance').textContent = 'Move into view with good lighting.';
@@ -270,10 +330,17 @@ async function faceLoop() {
       await faceEvent('No face detected', 'no-face');
       return;
     }
+
     currentFaceDescriptor = Array.from(result.descriptor);
+    const canvas = $('faceOverlay');
+    const w = img.naturalWidth, h = img.naturalHeight;
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
     const b = result.detection.box;
     ctx.strokeStyle = '#22c55e'; ctx.lineWidth = Math.max(2, w / 240);
     ctx.strokeRect(b.x, b.y, b.width, b.height);
+
     if (!faceUsers.length) {
       $('faceResult').textContent = 'Face detected';
       $('faceDistance').textContent = 'Register a consenting test user to compare.';
@@ -281,24 +348,25 @@ async function faceLoop() {
       await faceEvent('Face detected; no registrations yet', 'face-no-registrations');
       return;
     }
-    let best = { name: '', distance: Infinity };
-    for (const user of faceUsers) {
-      const distance = faceapi.euclideanDistance(currentFaceDescriptor, user.descriptor);
-      if (distance < best.distance) best = { name: user.name, distance };
+
+    if (!faceCaptureUntil) {
+      faceCaptureUntil = Date.now() + FACE_CAPTURE_MS;
+      faceCaptureSamples = [];
+      faceStatus('Face detected · analyzing for 10 seconds…');
+      $('faceResult').textContent = 'Analyzing face…';
+      $('faceDistance').textContent = 'Keep your face in view; the result will be held for 10 seconds.';
     }
-    // 0.6 is a conventional face-api.js starting point only; validate on this camera.
-    // This result is display-only and never triggers a servo command.
-    const matched = best.distance < 0.6;
-    $('faceResult').textContent = matched ? 'Possible match: ' + best.name : 'No registered match';
-    $('faceDistance').textContent = 'Descriptor distance: ' + best.distance.toFixed(3) + ' · provisional threshold 0.600';
-    faceStatus(matched ? 'Possible match · testing only' : 'Face detected · no match');
-    await faceEvent(matched ? 'Possible match: ' + best.name + ' (testing only)' : 'No registered face match', matched ? 'match:' + best.name : 'no-match');
+    faceCaptureSamples.push(currentFaceDescriptor.slice());
+    const secondsLeft = Math.max(0, Math.ceil((faceCaptureUntil - Date.now()) / 1000));
+    faceStatus('Analyzing face · ' + secondsLeft + 's remaining (' + faceCaptureSamples.length + ' samples)');
+    if (Date.now() >= faceCaptureUntil) finishFaceCapture();
   } catch (e) {
     faceStatus('Analysis error: ' + e.message);
   } finally { faceBusy = false; }
 }
 function stopFaceAnalysis() {
   faceRunning = false; clearInterval(faceTimer); faceTimer = null;
+  faceCaptureUntil = 0; faceCooldownUntil = 0; faceWaitForClear = false; faceCaptureSamples = [];
   const img = $('faceStream'); img.onerror = null; img.onload = null; img.removeAttribute('src'); img.hidden = true;
   const canvas = $('faceOverlay'); canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
   $('facePlaceholder').hidden = false; $('faceStart').disabled = !faceReady;
