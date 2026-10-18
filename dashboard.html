@@ -101,9 +101,29 @@
       <p class="tb" style="font-size:14px;margin-top:14px">Signal on D9. Opening the serial port resets the Arduino, so the servo returns to 0° (locked) each time you connect.</p>
     </div>
   </div>
-  <div class="card panel wide">
-    <div class="ph"><h3>Face recognition<small>planned</small></h3><span class="state">NOT ENABLED</span></div>
-    <div class="faceinfo"><span class="ri">🧑‍💻</span><p>Not connected to this dashboard yet. The OpenCV YuNet and SFace test scripts run on their own. Until they are wired in, only the PIR sensor and cameras report here, and motion never unlocks the door.</p></div>
+  <div class="card panel wide" id="facePanel">
+    <div class="ph"><h3>Face recognition<small>browser prototype · face-api.js</small></h3><span class="state" id="faceModelStatus">MODEL NOT LOADED</span></div>
+    <div class="two">
+      <div>
+        <div class="field"><label for="faceCamera">Camera source</label><select id="faceCamera"><option value="1">Entry camera · CAM 01</option><option value="2">Secondary camera · CAM 02</option></select></div>
+        <div class="stage face-stage" style="margin-top:12px;min-height:240px">
+          <img id="faceStream" alt="Local camera stream for face analysis" hidden>
+          <div class="empty placeholder" id="facePlaceholder"><div class="eicon">🧑‍💻</div><h4>Face analysis is stopped</h4><p>Start analysis to connect to the selected ESP32-CAM.</p></div>
+          <canvas id="faceOverlay" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
+        </div>
+        <div class="acts" style="margin-top:12px"><button class="btn primary" id="faceStart">Start analysis</button><button class="btn ghost" id="faceStop" disabled>Stop</button></div>
+        <p class="tb" id="faceStatus" aria-live="polite">Models have not loaded. This prototype never unlocks the servo.</p>
+      </div>
+      <div>
+        <h3>Register a test user</h3>
+        <div class="field"><label for="faceName">Name</label><input id="faceName" maxlength="40" placeholder="e.g. Moses"></div>
+        <div class="acts" style="margin-top:10px"><button class="btn ghost" id="faceEnroll" disabled>Register current face</button><button class="btn ghost" id="faceClear">Clear registrations</button></div>
+        <p class="tb">Registration uses a facial descriptor captured from the live stream. Descriptors are stored in this browser's local storage. Use only with consent.</p>
+        <div class="readout" style="margin-top:12px"><span class="ri">🛡️</span><div><small>Recognition result</small><b id="faceResult">Testing only</b><div class="sub" id="faceDistance">No comparison yet</div></div></div>
+        <div class="log" id="faceUsers" style="margin-top:12px;max-height:160px"><div class="emptyrow">No registered users.</div></div>
+      </div>
+    </div>
+    <div class="notice" style="margin-top:16px"><b>⚠ TEST MODE</b><br>Face matching is experimental and can make mistakes. A match does not unlock the servo; use the manual unloaded bench-test controls only. Face images are not uploaded by this code, but descriptors remain in this browser until cleared.</div>
   </div>
 </section>
 
@@ -116,6 +136,7 @@
 
 <div class="modal" id="modal" hidden><div class="card box"><h3>Move the servo?</h3><p>Bench test only. Keep clear of moving parts and do not connect this to a real door lock.</p><div class="acts"><button class="btn ghost" id="mNo">Cancel</button><button class="btn primary" id="mYes">Move servo</button></div></div></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
-<script src="dashboard.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/build/common.min.js"></script>
+<script defer src="dashboard.js"></script>
 </body>
 </html>
