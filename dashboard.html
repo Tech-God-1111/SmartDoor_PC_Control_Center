@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#112D4E">
+<title>Live · SmartDoor</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10H3z"/><path d="M10 21v-6h4v6"/></symbol>
+<symbol id="i-radio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4M19 5a10 10 0 0 1 0 14M5 19A10 10 0 0 1 5 5"/></symbol>
+<symbol id="i-cpu" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M9 2v3M15 2v3M9 19v3M15 19v3M2 9h3M2 15h3M19 9h3M19 15h3"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+<symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
+<symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 22h4M12 2a7 7 0 0 0-4 12.7c.6.5 1 1.3 1 2.3h6c0-1 .4-1.8 1-2.3A7 7 0 0 0 12 2z"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5M3 21v-5h5"/></symbol>
+</defs></svg>
+
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="logo"><svg class="ic" style="width:24px;height:24px"><use href="#i-home"/></svg></span><span>Smart<b>Door</b></span></a>
+  <nav class="tabs">
+    <button class="tab on" data-v="live"><svg class="ic"><use href="#i-radio"/></svg>Live</button>
+    <button class="tab" data-v="hardware"><svg class="ic"><use href="#i-cpu"/></svg>Hardware</button>
+    <button class="tab" data-v="events"><svg class="ic"><use href="#i-clock"/></svg>Events</button>
+  </nav>
+  <div class="sp"></div>
+  <div class="search"><svg class="ic"><use href="#i-search"/></svg><input id="cmd" placeholder="Commands" autocomplete="off" spellcheck="false"><span class="kbd">Ctrl K</span><div class="cmds" id="cmds" hidden></div></div>
+  <div class="clock" aria-label="Current time"><b id="clockTime">--:--</b><small id="clockDate"></small></div>
+  <button class="round" id="themeBtn" title="Switch light / dark"><svg class="ic"><use href="#i-moon" id="themeUse"/></svg></button>
+  <button class="round" id="bellBtn" title="Motion alerts"><svg class="ic"><use href="#i-bell"/></svg><span class="badge" id="bellBadge" hidden>0</span></button>
+  <button class="cta" id="fsBtn"><svg class="ic"><use href="#i-spark"/></svg><span>Fullscreen</span></button>
+  <div class="avatar" title="Local operator">S</div>
+</header>
+
+<main>
+<!-- LIVE -->
+<section class="view on" id="v-live">
+  <div class="banner">
+    <div class="bhead"><div><div class="eyebrow" id="greet">Good afternoon</div><h1>Door control desk</h1><p class="sub">Watch both cameras, follow motion and test the servo, all from one screen.</p></div></div>
+    <div class="stats">
+      <div class="stat"><small>Server</small><b><span class="dot" id="srvDot"></span><span id="srvText">Local server</span></b></div>
+      <div class="stat"><small>Motion</small><b><span class="dot" id="motDot"></span><span id="motion">Waiting</span></b></div>
+      <div class="stat"><small>Arduinos</small><b id="connected">0 / 2</b></div>
+      <div class="stat"><small>Cameras</small><b id="camCount">0 / 2</b></div>
+    </div>
+  </div>
+  <div class="grid">
+    <div class="cams" id="camGrid">
+      <div class="card camcard">
+        <div class="camhead"><div><small>CAM 01</small><h3>Entry camera</h3></div><span class="state" id="camStatus1">OFFLINE</span></div>
+        <div class="stage" id="screen1"><div class="empty placeholder"><div class="eicon">📷</div><h4>Ready when you are</h4><p>Camera is not connected</p></div><img alt="ESP32-CAM 1 video" hidden><div class="livebadge" id="badge1" hidden><span class="dot off"></span><span id="badgeT1">LIVE 00:00</span></div><div class="stagebtns" id="sbtn1" hidden><button class="mini" data-full="1" title="Fullscreen this camera" aria-label="Fullscreen camera 1">⛶</button><a class="mini" id="open1" target="_blank" rel="noopener" title="Open stream in a new tab" aria-label="Open camera 1 stream in a new tab">↗</a></div></div>
+        <div class="camrow"><input id="url1" aria-label="Camera 1 direct URL" value="http://192.168.0.101:81/stream" spellcheck="false"><button class="btn primary sm" id="camBtn1">Connect</button></div>
+      </div>
+      <div class="card camcard">
+        <div class="camhead"><div><small>CAM 02</small><h3>Secondary camera</h3></div><span class="state" id="camStatus2">OFFLINE</span></div>
+        <div class="stage" id="screen2"><div class="empty placeholder"><div class="eicon">📷</div><h4>Ready when you are</h4><p>Camera is not connected</p></div><img alt="ESP32-CAM 2 video" hidden><div class="livebadge" id="badge2" hidden><span class="dot off"></span><span id="badgeT2">LIVE 00:00</span></div><div class="stagebtns" id="sbtn2" hidden><button class="mini" data-full="2" title="Fullscreen this camera" aria-label="Fullscreen camera 2">⛶</button><a class="mini" id="open2" target="_blank" rel="noopener" title="Open stream in a new tab" aria-label="Open camera 2 stream in a new tab">↗</a></div></div>
+        <div class="camrow"><input id="url2" aria-label="Camera 2 direct URL" value="http://192.168.0.102:81/stream" spellcheck="false"><button class="btn primary sm" id="camBtn2">Connect</button></div>
+      </div>
+    </div>
+    <aside class="side">
+      <div class="card panel tips">
+        <div class="ph"><h3><span class="bulb"><svg class="ic"><use href="#i-bulb"/></svg></span>Smart suggestions</h3><button class="round sm" id="tipBtn" title="Another tip"><svg class="ic"><use href="#i-refresh"/></svg></button></div>
+        <div class="tt" id="tipT"></div><p class="tb" id="tipB"></p>
+      </div>
+      <div class="card panel">
+        <div class="ph"><h3>Quick actions<small>tap to run</small></h3></div>
+        <div class="tiles">
+          <button class="tile t1" id="tCams"><span class="ti">📹</span><b>Cameras</b><small id="tCamsS">Connect both</small></button>
+          <button class="tile t2" id="tMotion"><span class="ti">🚶</span><b>Motion</b><small id="tMotionS">Waiting</small></button>
+          <button class="tile t3" id="tPorts"><span class="ti">🔄</span><b>COM ports</b><small>Refresh list</small></button>
+          <button class="tile t4" id="tLock"><span class="ti">🔒</span><b>Lock</b><small>Servo to 0°</small></button>
+          <button class="tile t5" id="tUnlock"><span class="ti">🔓</span><b>Unlock</b><small>Bench test 90°</small></button>
+          <button class="tile t6" id="tFull"><span class="ti">⛶</span><b>FULLSCREEN</b><small>Camera wall</small></button>
+        </div>
+      </div>
+      <div class="notice"><b>⚠ PROTOTYPE SAFETY</b><br>Motion never unlocks the door. Servo controls are for unloaded bench testing only. Do not connect this to a real door lock.<strong>Face recognition is not enabled.</strong></div>
+    </aside>
+  </div>
+</section>
+
+<!-- HARDWARE -->
+<section class="view" id="v-hardware">
+  <div class="banner"><div class="bhead"><div><div class="eyebrow">Arduino controllers</div><h1>Hardware</h1><p class="sub">Connect the PIR sensor and the servo, then pick their COM ports.</p></div><button class="btn ghost" id="refresh"><svg class="ic"><use href="#i-refresh"/></svg>Refresh COM ports</button></div></div>
+  <div class="two">
+    <div class="card panel">
+      <div class="ph"><h3>PIR motion sensor<small>Arduino #1</small></h3><span class="state" id="pirStatus">OFFLINE</span></div>
+      <div class="field"><select id="pirPort" aria-label="PIR COM port"><option>COM10</option></select><button class="btn primary sm" id="pirBtn">Connect</button></div>
+      <div class="readout" id="readout"><span class="ri">🚶</span><div><small>Motion</small><b id="motion2">Waiting</b><div class="sub" id="lastMotion">No motion seen yet</div></div></div>
+      <p class="tb" style="font-size:14px;margin-top:14px">HC-SR501 on D2. The sensor needs about 30 seconds to warm up after power-up, so early readings are ignored.</p>
+    </div>
+    <div class="card panel">
+      <div class="ph"><h3>SG90 servo<small>Arduino #2 · bench test</small></h3><span class="state" id="servoStatus">OFFLINE</span></div>
+      <div class="field"><select id="servoPort" aria-label="Servo COM port"><option>COM11</option></select><button class="btn primary sm" id="servoBtn">Connect</button></div>
+      <div class="servo"><button class="btn ghost" id="lockBtn" disabled>🔒 Set 0° · LOCK</button><button class="btn ghost" id="unlockBtn" disabled>🔓 Set 90° · TEST</button></div>
+      <p class="tb" style="font-size:14px;margin-top:14px">Signal on D9. Opening the serial port resets the Arduino, so the servo returns to 0° (locked) each time you connect.</p>
+    </div>
+  </div>
+  <div class="card panel wide">
+    <div class="ph"><h3>Face recognition<small>planned</small></h3><span class="state">NOT ENABLED</span></div>
+    <div class="faceinfo"><span class="ri">🧑‍💻</span><p>Not connected to this dashboard yet. The OpenCV YuNet and SFace test scripts run on their own. Until they are wired in, only the PIR sensor and cameras report here, and motion never unlocks the door.</p></div>
+  </div>
+</section>
+
+<!-- EVENTS -->
+<section class="view" id="v-events">
+  <div class="banner"><div class="bhead"><div><div class="eyebrow">Activity</div><h1>Event log</h1><p class="sub">Everything the cameras, PIR and servo report, newest first.</p></div><div class="chips" id="chips"><button class="chip on" data-f="all">All</button><button class="chip" data-f="PIR">PIR</button><button class="chip" data-f="SERVO">Servo</button><button class="btn ghost sm" id="dlLog" style="margin-left:8px">⬇ Download CSV</button></div></div></div>
+  <div class="card panel"><div class="ph"><h3>Live events<small id="evCount">0 events</small></h3><span class="state online">LIVE</span></div><div class="log" id="events"><div class="emptyrow">Waiting for events…</div></div></div>
+</section>
+</main>
+
+<div class="modal" id="modal" hidden><div class="card box"><h3>Move the servo?</h3><p>Bench test only. Keep clear of moving parts and do not connect this to a real door lock.</p><div class="acts"><button class="btn ghost" id="mNo">Cancel</button><button class="btn primary" id="mYes">Move servo</button></div></div></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script src="dashboard.js"></script>
+</body>
+</html>

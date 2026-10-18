@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#112D4E">
+<title>SmartDoor Control Center</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="index.html"><span class="logo"><svg class="ic" style="width:24px;height:24px" viewBox="0 0 24 24"><path d="M3 11l9-8 9 8v10H3z"/><path d="M10 21v-6h4v6"/></svg></span><span>Smart<b>Door</b> <small>PC CONTROL CENTER</small></span></a>
+  <div class="sp"></div>
+  <a class="cta" href="dashboard.html"><span>Open dashboard</span><svg class="ic" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></svg></a>
+</header>
+<main class="hero">
+  <div class="banner">
+    <div class="eyebrow">Local system · prototype</div>
+    <h1>Your door system,<br><em>at a glance.</em></h1>
+    <p class="lead">Watch both ESP32-CAM streams, follow PIR motion and run an unloaded servo bench test, all from one screen on this PC.</p>
+    <div class="acts"><a class="btn light" href="dashboard.html">Open dashboard →</a></div>
+  </div>
+  <div class="feat">
+    <div class="fcard f1"><div class="ti">📹</div><h3>Two live cameras</h3><p>Direct MJPEG streams from both ESP32-CAMs, no extra software needed.</p></div>
+    <div class="fcard f2"><div class="ti">🚶</div><h3>PIR motion</h3><p>Arduino #1 reports motion and the dashboard alerts you instantly.</p></div>
+    <div class="fcard f3"><div class="ti">🔧</div><h3>Servo bench test</h3><p>Lock and unlock an unloaded SG90 safely from Arduino #2.</p></div>
+  </div>
+  <div class="notice"><b>⚠ PROTOTYPE SAFETY</b> · This runs only on this PC. Face recognition is not enabled, motion never unlocks the door, and the servo is for unloaded bench testing only.</div>
+</main>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('sdpc.theme2')||'light'}catch(e){}</script>
+</body>
+</html>
