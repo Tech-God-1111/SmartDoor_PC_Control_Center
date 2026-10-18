@@ -193,7 +193,11 @@ function renderFaceUsers() {
     const row = document.createElement('div'); row.className = 'ev';
     const name = document.createElement('span'); name.textContent = u.name;
     const remove = document.createElement('button'); remove.className = 'btn ghost sm'; remove.textContent = 'Remove';
-    remove.onclick = () => { faceUsers.splice(i, 1); saveFaceUsers(); toast('Registration removed'); };
+    remove.onclick = () => {
+      const previous = faceUsers.slice(); faceUsers.splice(i, 1);
+      if (saveFaceUsers()) toast('Registration removed');
+      else { faceUsers = previous; renderFaceUsers(); }
+    };
     row.append(name, remove); return row;
   }));
 }
