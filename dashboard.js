@@ -274,6 +274,7 @@ async function faceLoop() {
       $('faceResult').textContent = 'Face detected';
       $('faceDistance').textContent = 'Register a consenting test user to compare.';
       faceStatus('Face detected · no registrations yet');
+      await faceEvent('Face detected; no registrations yet', 'face-no-registrations');
       return;
     }
     let best = { name: '', distance: Infinity };
