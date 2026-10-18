@@ -6,7 +6,10 @@ from collections import deque
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
+from urllib.request import urlopen
+from urllib.error import URLError
+import ipaddress
 
 try:
     import serial
@@ -136,7 +139,52 @@ class AppHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self.allowed():
             return self.reply(403, json.dumps({"error": "Forbidden."}))
-        route = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        route = parsed.path
+        if route == "/api/camera-stream":
+            # Relay only a private-network ESP32-CAM MJPEG endpoint so the browser can
+            # analyse frames without cross-origin canvas restrictions.
+            query = parse_qs(parsed.query)
+            target = query.get("url", [""])[0]
+            try:
+                target_url = urlparse(target)
+                ip = ipaddress.ip_address(target_url.hostname or "")
+                valid = (
+                    target_url.scheme == "http"
+                    and ip.is_private
+                    and target_url.port == 81
+                    and target_url.path == "/stream"
+                    and not target_url.username
+                    and not target_url.password
+                )
+            except (ValueError, TypeError):
+                valid = False
+            if not valid:
+                return self.reply(400, json.dumps({"error": "Use an ESP32-CAM private IP URL on port 81 ending in /stream."}))
+            remote = None
+            started = False
+            try:
+                remote = urlopen(target, timeout=5)
+                content_type = remote.headers.get("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+                self.send_response(200)
+                self.send_header("Content-Type", content_type)
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Connection", "close")
+                self.end_headers()
+                started = True
+                while True:
+                    chunk = remote.read1(8192) if hasattr(remote, "read1") else remote.read(8192)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+            except (BrokenPipeError, ConnectionResetError, TimeoutError, URLError, OSError):
+                if not started:
+                    return self.reply(502, json.dumps({"error": "Could not reach the ESP32-CAM stream."}))
+            finally:
+                if remote:
+                    remote.close()
+            return
         if route == "/api/state":
             with mutex:
                 payload = {key: {field: value for field, value in item.items() if field != "worker"}
@@ -170,10 +218,16 @@ class AppHandler(BaseHTTPRequestHandler):
                 raise ValueError
         except (ValueError, json.JSONDecodeError):
             return self.reply(400, json.dumps({"error": "Send valid JSON."}))
+        route = urlparse(self.path).path
+        if route == "/api/face-event":
+            message = str(data.get("message", "")).strip()
+            if not message or len(message) > 180:
+                return self.reply(400, json.dumps({"error": "Face event message must be 1–180 characters."}))
+            log("FACE: " + message)
+            return self.reply(200, '{"ok":true}')
         key = data.get("key")
         if key not in devices:
             return self.reply(400, json.dumps({"error": "Unknown device."}))
-        route = urlparse(self.path).path
         if route == "/api/connect":
             if serial is None:
                 return self.reply(503, json.dumps({"error": "Install pyserial: py -m pip install pyserial"}))
